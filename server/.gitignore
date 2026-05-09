@@ -3,6 +3,7 @@ node_modules/
 
 # Environment variables
 .env.local
+.env
 .env.development
 .env.test
 .env.production
