@@ -9,6 +9,9 @@ const healthRoutes = require('./src/routes/health.routes');
 const meRoutes = require('./src/routes/me.routes');
 const profileRoutes = require('./src/routes/profile.routes');
 const workspaceRoutes = require('./src/routes/workspace.routes');
+const inviteRoutes = require('./src/routes/invite.routes');
+const taskRoutes = require('./src/routes/task.routes');
+const fileRoutes = require('./src/routes/file.routes');
 
 const { apiLimiter } = require('./src/middleware/rateLimiter');
 const notFound = require('./src/middleware/notFound');
@@ -38,6 +41,9 @@ app.use(healthRoutes);
 app.use('/api', meRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/workspaces', workspaceRoutes);
+app.use('/api/workspaces/:workspaceId', taskRoutes);
+app.use('/api/workspaces/:workspaceId', fileRoutes);
+app.use('/api/invites', inviteRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

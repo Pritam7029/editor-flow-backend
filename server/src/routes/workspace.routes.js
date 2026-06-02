@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { requireAuth } = require('../middleware/auth');
 const { supabaseAdmin } = require('../config/supabase');
 const validate = require('../validators/validate');
@@ -10,9 +11,17 @@ const {
 } = require('../validators/workspace.validators');
 
 const {
+    createInviteSchema,
+    updateMemberSchema,
+    removeMemberSchema
+} = require('../validators/invite.validators');
+
+const {
     requireWorkspaceMember,
     requireWorkspaceRole
 } = require('../services/workspaceAccess.service');
+
+const { sendWorkspaceInvite } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -295,6 +304,273 @@ router.get(
                 data: {
                     members: hydratedMembers
                 }
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+);
+
+/**
+ * POST /api/workspaces/:workspaceId/invites
+ * Send an invitation to join the workspace
+ */
+router.post(
+    '/:workspaceId/invites',
+    validate(createInviteSchema),
+    async (req, res, next) => {
+        try {
+            const { workspaceId } = req.validated.params;
+            const { email, role } = req.validated.body;
+
+            // 1. Authorize - Requester must be admin or owner
+            await requireWorkspaceRole(req.user.id, workspaceId, ['owner', 'admin']);
+
+            // 2. Check if user is already an active member of this workspace
+            const { data: profile } = await supabaseAdmin
+                .from('profiles')
+                .select('id')
+                .eq('email', email)
+                .maybeSingle();
+
+            if (profile) {
+                const { data: activeMember } = await supabaseAdmin
+                    .from('workspace_members')
+                    .select('*')
+                    .eq('workspace_id', workspaceId)
+                    .eq('user_id', profile.id)
+                    .eq('status', 'active')
+                    .maybeSingle();
+
+                if (activeMember) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'This user is already an active member of this workspace'
+                    });
+                }
+            }
+
+            // 3. Check for existing active invite
+            const { data: existingInvite } = await supabaseAdmin
+                .from('workspace_invites')
+                .select('*')
+                .eq('workspace_id', workspaceId)
+                .eq('email', email)
+                .eq('status', 'invited')
+                .maybeSingle();
+
+            let invite;
+            const token = crypto.randomBytes(32).toString('hex');
+            const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days expiration
+
+            if (existingInvite) {
+                // Update/renew active invite
+                const { data: updatedInvite, error: updateError } = await supabaseAdmin
+                    .from('workspace_invites')
+                    .update({
+                        token,
+                        expires_at: expiresAt,
+                        invited_by: req.user.id,
+                        role,
+                        updated_at: new Date()
+                    })
+                    .eq('id', existingInvite.id)
+                    .select()
+                    .single();
+
+                if (updateError) throw updateError;
+                invite = updatedInvite;
+            } else {
+                // Create new invite
+                const { data: newInvite, error: insertError } = await supabaseAdmin
+                    .from('workspace_invites')
+                    .insert({
+                        workspace_id: workspaceId,
+                        email,
+                        role,
+                        invited_by: req.user.id,
+                        token,
+                        expires_at: expiresAt
+                    })
+                    .select()
+                    .single();
+
+                if (insertError) throw insertError;
+                invite = newInvite;
+            }
+
+            // 4. Fetch details to personalize invite email
+            const { data: workspace } = await supabaseAdmin
+                .from('workspaces')
+                .select('name')
+                .eq('id', workspaceId)
+                .single();
+
+            const { data: inviter } = await supabaseAdmin
+                .from('profiles')
+                .select('full_name, email')
+                .eq('id', req.user.id)
+                .single();
+
+            const inviterName = inviter.full_name || inviter.email || 'A team member';
+
+            // 5. Send transactional email
+            await sendWorkspaceInvite({
+                email,
+                inviteToken: token,
+                workspaceName: workspace.name,
+                inviterName
+            });
+
+            return res.status(201).json({
+                success: true,
+                message: 'Invitation sent successfully',
+                data: {
+                    invite
+                }
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+);
+
+/**
+ * PATCH /api/workspaces/:workspaceId/members/:memberId
+ * Update membership role (Owner/Admin only, prevent owner changes)
+ */
+router.patch(
+    '/:workspaceId/members/:memberId',
+    validate(updateMemberSchema),
+    async (req, res, next) => {
+        try {
+            const { workspaceId, memberId } = req.validated.params;
+            const { role } = req.validated.body;
+
+            // 1. Requester must be admin or owner
+            await requireWorkspaceRole(req.user.id, workspaceId, ['owner', 'admin']);
+
+            // 2. Fetch workspace to identify owner
+            const { data: workspace } = await supabaseAdmin
+                .from('workspaces')
+                .select('owner_id')
+                .eq('id', workspaceId)
+                .single();
+
+            // 3. Fetch member to update
+            const { data: memberToUpdate, error: fetchError } = await supabaseAdmin
+                .from('workspace_members')
+                .select('*')
+                .eq('id', memberId)
+                .single();
+
+            if (fetchError || !memberToUpdate) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Workspace member not found'
+                });
+            }
+
+            // 4. Block owner modifications
+            if (memberToUpdate.user_id === workspace.owner_id) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Cannot update the role of the workspace owner'
+                });
+            }
+
+            // 5. Apply update
+            const { data: updatedMember, error: updateError } = await supabaseAdmin
+                .from('workspace_members')
+                .update({
+                    role,
+                    updated_at: new Date()
+                })
+                .eq('id', memberId)
+                .select()
+                .single();
+
+            if (updateError) throw updateError;
+
+            return res.status(200).json({
+                success: true,
+                message: 'Member role updated successfully',
+                data: {
+                    member: updatedMember
+                }
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+);
+
+/**
+ * DELETE /api/workspaces/:workspaceId/members/:memberId
+ * Remove member from workspace (Owner/Admin only)
+ */
+router.delete(
+    '/:workspaceId/members/:memberId',
+    validate(removeMemberSchema),
+    async (req, res, next) => {
+        try {
+            const { workspaceId, memberId } = req.validated.params;
+
+            // 1. Requester must be admin or owner
+            const requesterMembership = await requireWorkspaceRole(req.user.id, workspaceId, ['owner', 'admin']);
+
+            // 2. Fetch workspace to identify owner
+            const { data: workspace } = await supabaseAdmin
+                .from('workspaces')
+                .select('owner_id')
+                .eq('id', workspaceId)
+                .single();
+
+            // 3. Fetch member to delete
+            const { data: memberToDelete, error: fetchError } = await supabaseAdmin
+                .from('workspace_members')
+                .select('*')
+                .eq('id', memberId)
+                .single();
+
+            if (fetchError || !memberToDelete) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Workspace member not found'
+                });
+            }
+
+            // 4. Block owner removal
+            if (memberToDelete.user_id === workspace.owner_id) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Cannot remove the workspace owner'
+                });
+            }
+
+            // 5. Admins cannot remove other admins
+            if (requesterMembership.role === 'admin' && memberToDelete.role === 'admin') {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Admins cannot remove other admins'
+                });
+            }
+
+            // 6. Delete membership or update status to 'removed'
+            const { error: deleteError } = await supabaseAdmin
+                .from('workspace_members')
+                .update({
+                    status: 'removed',
+                    updated_at: new Date()
+                })
+                .eq('id', memberId);
+
+            if (deleteError) throw deleteError;
+
+            return res.status(200).json({
+                success: true,
+                message: 'Member removed successfully',
+                data: null
             });
         } catch (error) {
             next(error);
