@@ -71,4 +71,46 @@ router.get('/me', requireAuth, async(req, res, next) => {
     }
 });
 
+/**
+ * PATCH /api/profile/me
+ * Update the logged-in user's profile details
+ */
+router.patch('/me', requireAuth, async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const { name, color, role, bio, status, avatarUrl } = req.body;
+
+        const updatePayload = {};
+        if (name !== undefined) updatePayload.full_name = name;
+        if (color !== undefined) updatePayload.color = color;
+        if (role !== undefined) updatePayload.role = role;
+        if (bio !== undefined) updatePayload.bio = bio;
+        if (status !== undefined) updatePayload.status = status;
+        if (avatarUrl !== undefined) updatePayload.avatar_url = avatarUrl;
+        
+        updatePayload.updated_at = new Date();
+
+        const { data: profile, error: profileError } = await supabaseAdmin
+            .from('profiles')
+            .update(updatePayload)
+            .eq('id', userId)
+            .select()
+            .single();
+
+        if (profileError) {
+            throw profileError;
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'Profile updated successfully',
+            data: {
+                profile
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 module.exports = router;

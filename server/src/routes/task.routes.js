@@ -228,6 +228,14 @@ router.get('/tasks', async (req, res, next) => {
 
         const columnKeyMap = new Map((columns || []).map(c => [c.id, c.key]));
 
+        // Fetch workspace members to map assignee_id (workspace_members.id) to user_id (profile/editor id)
+        const { data: members } = await supabaseAdmin
+            .from('workspace_members')
+            .select('id, user_id')
+            .eq('workspace_id', workspaceId);
+
+        const memberUserMap = new Map((members || []).map(m => [m.id, m.user_id]));
+
         // Fetch tasks
         const { data: tasks, error: tasksError } = await supabaseAdmin
             .from('tasks')
@@ -277,7 +285,7 @@ router.get('/tasks', async (req, res, next) => {
             description: task.description || '',
             type: task.type,
             priority: task.priority,
-            assigneeId: task.assignee_id || '',
+            assigneeId: task.assignee_id ? (memberUserMap.get(task.assignee_id) || '') : '',
             created_by: task.created_by,
             deadline: task.deadline || '',
             status: task.column_id ? (columnKeyMap.get(task.column_id) || 'todo') : 'todo',
@@ -323,6 +331,22 @@ router.post('/tasks', validate(createTaskSchema), async (req, res, next) => {
             });
         }
 
+        // Translate user-facing assigneeId (user profile ID) to internal workspace_members.id
+        let dbAssigneeId = null;
+        if (assigneeId) {
+            const { data: member } = await supabaseAdmin
+                .from('workspace_members')
+                .select('id')
+                .eq('workspace_id', workspaceId)
+                .eq('user_id', assigneeId)
+                .eq('status', 'active')
+                .maybeSingle();
+            
+            if (member) {
+                dbAssigneeId = member.id;
+            }
+        }
+
         const { data: task, error: insertError } = await supabaseAdmin
             .from('tasks')
             .insert({
@@ -332,7 +356,7 @@ router.post('/tasks', validate(createTaskSchema), async (req, res, next) => {
                 description,
                 type,
                 priority,
-                assignee_id: assigneeId || null,
+                assignee_id: dbAssigneeId,
                 created_by: req.user.id,
                 deadline: deadline || null,
                 position
@@ -345,7 +369,7 @@ router.post('/tasks', validate(createTaskSchema), async (req, res, next) => {
         // Hydrate empty comments array for immediate state use
         const hydratedTask = {
             ...task,
-            assigneeId: task.assignee_id || '',
+            assigneeId: assigneeId || '',
             deadline: task.deadline || '',
             status,
             comments: []
@@ -380,7 +404,19 @@ router.patch('/tasks/:taskId', validate(updateTaskSchema), async (req, res, next
         if (position !== undefined) updates.position = position;
         
         if (assigneeId !== undefined) {
-            updates.assignee_id = assigneeId || null;
+            if (assigneeId) {
+                const { data: member } = await supabaseAdmin
+                    .from('workspace_members')
+                    .select('id')
+                    .eq('workspace_id', workspaceId)
+                    .eq('user_id', assigneeId)
+                    .eq('status', 'active')
+                    .maybeSingle();
+                
+                updates.assignee_id = member ? member.id : null;
+            } else {
+                updates.assignee_id = null;
+            }
         }
         
         if (deadline !== undefined) {
@@ -418,9 +454,21 @@ router.patch('/tasks/:taskId', validate(updateTaskSchema), async (req, res, next
 
         if (updateError) throw updateError;
 
+        let returnAssigneeId = '';
+        if (assigneeId !== undefined) {
+            returnAssigneeId = assigneeId || '';
+        } else if (task.assignee_id) {
+            const { data: member } = await supabaseAdmin
+                .from('workspace_members')
+                .select('user_id')
+                .eq('id', task.assignee_id)
+                .maybeSingle();
+            returnAssigneeId = member ? (member.user_id || '') : '';
+        }
+
         const hydratedTask = {
             ...task,
-            assigneeId: task.assignee_id || '',
+            assigneeId: returnAssigneeId,
             deadline: task.deadline || '',
             status: status !== undefined ? status : undefined
         };

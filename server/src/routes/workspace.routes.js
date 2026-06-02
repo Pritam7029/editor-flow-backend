@@ -22,6 +22,7 @@ const {
 } = require('../services/workspaceAccess.service');
 
 const { sendWorkspaceInvite } = require('../services/emailService');
+const { bootstrapWorkspaceDemoData } = require('../services/bootstrap.service');
 
 const router = express.Router();
 
@@ -125,6 +126,9 @@ router.post('/', validate(createWorkspaceSchema), async(req, res, next) => {
         if (workspaceError) {
             throw workspaceError;
         }
+
+        // Bootstrap demo data for the newly created workspace
+        await bootstrapWorkspaceDemoData(workspaceId, req.user.id);
 
         return res.status(201).json({
             success: true,

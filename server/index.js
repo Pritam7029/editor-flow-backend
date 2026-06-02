@@ -12,6 +12,8 @@ const workspaceRoutes = require('./src/routes/workspace.routes');
 const inviteRoutes = require('./src/routes/invite.routes');
 const taskRoutes = require('./src/routes/task.routes');
 const fileRoutes = require('./src/routes/file.routes');
+const chatRoutes = require('./src/routes/chat.routes');
+const notificationRoutes = require('./src/routes/notification.routes');
 
 const { apiLimiter } = require('./src/middleware/rateLimiter');
 const notFound = require('./src/middleware/notFound');
@@ -43,6 +45,8 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/workspaces/:workspaceId', taskRoutes);
 app.use('/api/workspaces/:workspaceId', fileRoutes);
+app.use('/api/workspaces/:workspaceId', chatRoutes);
+app.use('/api/workspaces/:workspaceId', notificationRoutes);
 app.use('/api/invites', inviteRoutes);
 
 app.use(notFound);
