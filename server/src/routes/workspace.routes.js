@@ -23,6 +23,7 @@ const {
 
 const { sendWorkspaceInvite } = require('../services/emailService');
 const { bootstrapWorkspaceDemoData } = require('../services/bootstrap.service');
+const { assertCanCreateWorkspace } = require('../middleware/planEnforcement');
 
 const router = express.Router();
 
@@ -81,7 +82,7 @@ router.get('/', async(req, res, next) => {
  * POST /api/workspaces
  * Create a workspace and make logged-in user the owner
  */
-router.post('/', validate(createWorkspaceSchema), async(req, res, next) => {
+router.post('/', validate(createWorkspaceSchema), assertCanCreateWorkspace, async(req, res, next) => {
     try {
         const { name } = req.validated.body;
 

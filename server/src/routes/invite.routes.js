@@ -3,6 +3,7 @@ const { requireAuth } = require('../middleware/auth');
 const { supabaseAdmin } = require('../config/supabase');
 const validate = require('../validators/validate');
 const { resolveInviteSchema, acceptInviteSchema } = require('../validators/invite.validators');
+const { getPlanLimitsForWorkspace } = require('../middleware/planEnforcement');
 
 const router = express.Router();
 
@@ -171,6 +172,24 @@ router.post('/:token/accept', requireAuth, validate(acceptInviteSchema), async (
                 data: {
                     workspaceId: invite.workspace_id
                 }
+            });
+        }
+
+        // Check plan member limits
+        const limits = await getPlanLimitsForWorkspace(invite.workspace_id);
+        const { count: currentMemberCount, error: countError } = await supabaseAdmin
+            .from('workspace_members')
+            .select('*', { count: 'exact', head: true })
+            .eq('workspace_id', invite.workspace_id)
+            .eq('status', 'active');
+
+        if (countError) throw countError;
+
+        if (currentMemberCount >= limits.max_members) {
+            return res.status(403).json({
+                success: false,
+                code: 'PLAN_LIMIT_EXCEEDED',
+                message: `This workspace has reached the limit of ${limits.max_members} active members allowed by the owner's plan.`
             });
         }
 

@@ -14,6 +14,9 @@ const taskRoutes = require('./src/routes/task.routes');
 const fileRoutes = require('./src/routes/file.routes');
 const chatRoutes = require('./src/routes/chat.routes');
 const notificationRoutes = require('./src/routes/notification.routes');
+const sessionRoutes = require('./src/routes/session.routes');
+const billingRoutes = require('./src/routes/billing.routes');
+const joinRoutes = require('./src/routes/join.routes');
 
 const { apiLimiter } = require('./src/middleware/rateLimiter');
 const notFound = require('./src/middleware/notFound');
@@ -41,6 +44,9 @@ app.use(apiLimiter);
 
 app.use(healthRoutes);
 app.use('/api', meRoutes);
+app.use('/api/session', sessionRoutes);
+app.use('/api', billingRoutes);
+app.use('/api', joinRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/workspaces/:workspaceId', taskRoutes);

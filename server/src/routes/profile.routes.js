@@ -8,27 +8,38 @@ router.get('/me', requireAuth, async(req, res, next) => {
     try {
         const user = req.user;
 
-        const profilePayload = {
-            id: user.id,
-            email: user.email,
-            full_name: user.user_metadata && (user.user_metadata.full_name || user.user_metadata.name) ?
-                user.user_metadata.full_name || user.user_metadata.name :
-                null,
-            avatar_url: user.user_metadata && user.user_metadata.avatar_url ?
-                user.user_metadata.avatar_url :
-                null
-        };
-
-        const { data: profile, error: profileError } = await supabaseAdmin
+        let { data: profile, error: profileError } = await supabaseAdmin
             .from('profiles')
-            .upsert(profilePayload, {
-                onConflict: 'id'
-            })
-            .select()
-            .single();
+            .select('*')
+            .eq('id', user.id)
+            .maybeSingle();
 
         if (profileError) {
             throw profileError;
+        }
+
+        if (!profile) {
+            const profilePayload = {
+                id: user.id,
+                email: user.email,
+                full_name: user.user_metadata && (user.user_metadata.full_name || user.user_metadata.name) ?
+                    user.user_metadata.full_name || user.user_metadata.name :
+                    null,
+                avatar_url: user.user_metadata && user.user_metadata.avatar_url ?
+                    user.user_metadata.avatar_url :
+                    null
+            };
+
+            const { data: newProfile, error: createError } = await supabaseAdmin
+                .from('profiles')
+                .insert(profilePayload)
+                .select()
+                .single();
+
+            if (createError) {
+                throw createError;
+            }
+            profile = newProfile;
         }
 
         let { data: preferences, error: preferencesError } = await supabaseAdmin
