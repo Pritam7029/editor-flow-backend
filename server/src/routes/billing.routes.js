@@ -160,4 +160,68 @@ router.post('/billing/select-free', async (req, res, next) => {
     }
 });
 
+// Import Razorpay service
+const { 
+    createCheckoutSessionService, 
+    handleRazorpayWebhookService, 
+    upgradeBillingAccount 
+} = require('../services/razorpay.service');
+
+/**
+ * POST /api/billing/create-checkout-session
+ * Create a Razorpay checkout session/payment link for Growth plan
+ */
+router.post('/billing/create-checkout-session', async (req, res, next) => {
+    try {
+        const { priceId } = req.body;
+        const result = await createCheckoutSessionService(req.user.id, priceId);
+        
+        return res.status(200).json({
+            success: true,
+            message: result.isMock ? 'Mock checkout session created' : 'Checkout session created successfully',
+            data: result
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/billing/confirm-mock-checkout
+ * Explicit mock confirmation endpoint to upgrade user to growth plan instantly in mock mode
+ */
+router.post('/billing/confirm-mock-checkout', async (req, res, next) => {
+    try {
+        const { sessionId } = req.body;
+        
+        // Upgrade user to growth plan using mock session ID
+        const result = await upgradeBillingAccount(req.user.id, sessionId || `mock_sub_${Date.now()}`, 'growth', 'manual');
+        
+        return res.status(200).json({
+            success: true,
+            message: 'Mock subscription confirmed successfully',
+            data: result
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/billing/webhooks/razorpay
+ * Razorpay Webhook Endpoint (requires raw body parser for signature checking)
+ */
+router.post('/billing/webhooks/razorpay', async (req, res, next) => {
+    try {
+        const sig = req.headers['x-razorpay-signature'];
+        const rawBody = req.rawBody || req.body;
+        
+        const result = await handleRazorpayWebhookService(sig, rawBody);
+        
+        return res.status(200).json(result);
+    } catch (error) {
+        next(error);
+    }
+});
+
 module.exports = router;

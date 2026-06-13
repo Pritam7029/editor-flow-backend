@@ -30,6 +30,13 @@ const router = express.Router({ mergeParams: true });
 
 router.use(requireAuth);
 
+function broadcastToWorkspace(req, workspaceId, event, data) {
+    const io = req.app.get('socketio');
+    if (io) {
+        io.to(`workspace:${workspaceId}`).emit(event, data);
+    }
+}
+
 /**
  * GET /api/workspaces/:workspaceId/files
  * Fetch all files for the workspace, with versions and formatted comments.
@@ -97,6 +104,12 @@ router.post('/files/complete-upload', validate(completeUploadSchema), async (req
             durationSeconds
         });
 
+        broadcastToWorkspace(req, workspaceId, 'files:uploaded', { 
+            fileId: completedDetails.file.id,
+            file: completedDetails.file,
+            version: completedDetails.version
+        });
+
         return res.status(200).json({
             success: true,
             message: 'Upload completed successfully',
@@ -140,6 +153,8 @@ router.delete('/files/:fileId', async (req, res, next) => {
         await requireWorkspaceMember(req.user.id, workspaceId);
 
         await deleteFileService(workspaceId, fileId);
+
+        broadcastToWorkspace(req, workspaceId, 'files:file-deleted', { fileId });
 
         return res.status(200).json({
             success: true,
@@ -240,6 +255,8 @@ router.post('/files/:fileId/revisions', validate(createFileRevisionSchema), asyn
             priority
         });
 
+        broadcastToWorkspace(req, workspaceId, 'files:revision-created', { fileId, comment: revision });
+
         return res.status(201).json({
             success: true,
             message: 'Revision created successfully',
@@ -263,6 +280,8 @@ router.patch('/files/:fileId/revisions/:revisionId', validate(updateFileRevision
 
         const revision = await updateFileRevisionService(workspaceId, fileId, revisionId, req.user.id, payload);
 
+        broadcastToWorkspace(req, workspaceId, 'files:revision-updated', { fileId, comment: revision });
+
         return res.status(200).json({
             success: true,
             message: 'Revision updated successfully',
@@ -284,6 +303,8 @@ router.delete('/files/:fileId/revisions/:revisionId', async (req, res, next) => 
         await requireWorkspaceMember(req.user.id, workspaceId);
 
         await deleteFileRevisionService(workspaceId, fileId, revisionId, req.user.id);
+
+        broadcastToWorkspace(req, workspaceId, 'files:revision-deleted', { fileId, revisionId });
 
         return res.status(200).json({
             success: true,
@@ -307,6 +328,8 @@ router.patch('/files/:fileId/permissions', validate(updatePermissionsSchema), as
         await requireWorkspaceMember(req.user.id, workspaceId);
 
         const updatedPermissions = await updateFilePermissionsService(workspaceId, fileId, visibleTo);
+
+        broadcastToWorkspace(req, workspaceId, 'files:permissions-updated', { fileId, visibleTo: updatedPermissions });
 
         return res.status(200).json({
             success: true,

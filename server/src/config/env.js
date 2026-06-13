@@ -15,7 +15,11 @@ const envSchema = z.object({
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
 
     RESEND_API_KEY: z.string().optional(),
-    EMAIL_FROM: z.string().optional()
+    EMAIL_FROM: z.string().optional(),
+
+    RAZORPAY_KEY_ID: z.string().optional(),
+    RAZORPAY_KEY_SECRET: z.string().optional(),
+    RAZORPAY_WEBHOOK_SECRET: z.string().optional()
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

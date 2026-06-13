@@ -10,8 +10,28 @@ const {
 const {
     sendMessageSchema,
     createTeamSchema,
-    clearChatSchema
+    clearChatSchema,
+    createThreadSchema,
+    sendE2EEMessageSchema,
+    createWorkspaceKeyGrantSchema,
+    rotateWorkspaceKeySchema
 } = require('../validators/chat.validators');
+
+const {
+    getWorkspaceThreads,
+    createChatThread,
+    getThreadMessages,
+    saveMessage,
+    deleteMessage
+} = require('../services/chat.service');
+
+const {
+    getWorkspaceKeyGrants,
+    createWorkspaceKeyGrant,
+    getMyWorkspaceKeyGrant,
+    rotateWorkspaceKey,
+    getWorkspaceDeviceKeys
+} = require('../services/workspaceKey.service');
 
 const router = express.Router({ mergeParams: true });
 
@@ -19,16 +39,13 @@ router.use(requireAuth);
 
 /**
  * GET /api/workspaces/:workspaceId/chat
- * Fetch and structure all chat teams and messages for the workspace
+ * Fetch and structure all chat teams and messages for the workspace (Legacy)
  */
 router.get('/chat', async (req, res, next) => {
     try {
         const { workspaceId } = req.params;
-
-        // Verify membership access
         await requireWorkspaceMember(req.user.id, workspaceId);
 
-        // 1. Fetch all teams in the workspace (including member mappings)
         const { data: teams, error: teamsError } = await supabaseAdmin
             .from('chat_teams')
             .select(`
@@ -43,7 +60,6 @@ router.get('/chat', async (req, res, next) => {
 
         if (teamsError) throw teamsError;
 
-        // 2. Fetch all messages in the workspace hydrated with sender profile info
         const { data: messages, error: messagesError } = await supabaseAdmin
             .from('chat_messages')
             .select(`
@@ -61,16 +77,15 @@ router.get('/chat', async (req, res, next) => {
                 )
             `)
             .eq('workspace_id', workspaceId)
+            .is('deleted_at', null)
             .order('created_at', { ascending: true });
 
         if (messagesError) throw messagesError;
 
-        // 3. Structure the final chat data tree to match frontend expectation
         const globalChat = { general: [], links: [], feedback: [] };
         const dmChat = {};
         const teamsChat = {};
 
-        // Initialize teams
         (teams || []).forEach(team => {
             teamsChat[team.id] = {
                 id: team.id,
@@ -82,11 +97,9 @@ router.get('/chat', async (req, res, next) => {
             };
         });
 
-        // Distribute messages to global channels, DMs, or Teams
         (messages || []).forEach(msg => {
-            const channel = msg.channel; // 'general', 'links', or 'feedback'
+            const channel = msg.channel;
             
-            // Safety check for invalid channels in DB
             if (!globalChat[channel] && channel !== 'tagged') {
                 return;
             }
@@ -94,7 +107,7 @@ router.get('/chat', async (req, res, next) => {
             const formattedMessage = {
                 id: msg.id,
                 senderId: msg.sender_id,
-                senderName: msg.sender?.full_name || msg.sender?.email?.split('@')[0] || 'Unknown',
+                senderName: (msg.sender && msg.sender.full_name) || (msg.sender && msg.sender.email && msg.sender.email.split('@')[0]) || 'Unknown',
                 text: msg.text,
                 ts: new Date(msg.created_at).getTime()
             };
@@ -102,7 +115,6 @@ router.get('/chat', async (req, res, next) => {
             if (msg.conv_type === 'global') {
                 globalChat[channel].push(formattedMessage);
             } else if (msg.conv_type === 'dm') {
-                // DM is mapped under the *other* collaborator's profile ID in local state
                 const otherUserId = msg.sender_id === req.user.id ? msg.recipient_id : msg.sender_id;
                 if (otherUserId) {
                     dmChat[otherUserId] = dmChat[otherUserId] || { general: [], links: [], feedback: [] };
@@ -136,8 +148,7 @@ router.get('/chat', async (req, res, next) => {
 });
 
 /**
- * POST /api/workspaces/:workspaceId/chat/messages
- * Send a chat message
+ * POST /api/workspaces/:workspaceId/chat/messages (Legacy)
  */
 router.post('/chat/messages', validate(sendMessageSchema), async (req, res, next) => {
     try {
@@ -146,7 +157,6 @@ router.post('/chat/messages', validate(sendMessageSchema), async (req, res, next
 
         await requireWorkspaceMember(req.user.id, workspaceId);
 
-        // Save to Database
         const { data: newMsg, error: insertError } = await supabaseAdmin
             .from('chat_messages')
             .insert({
@@ -163,7 +173,6 @@ router.post('/chat/messages', validate(sendMessageSchema), async (req, res, next
 
         if (insertError) throw insertError;
 
-        // Fetch sender's current profile details
         const { data: sender, error: senderError } = await supabaseAdmin
             .from('profiles')
             .select('full_name, email')
@@ -175,7 +184,7 @@ router.post('/chat/messages', validate(sendMessageSchema), async (req, res, next
         const hydratedMessage = {
             id: newMsg.id,
             senderId: newMsg.sender_id,
-            senderName: sender.full_name || sender.email || 'Unknown',
+            senderName: (sender && sender.full_name) || (sender && sender.email) || 'Unknown',
             text: newMsg.text,
             ts: new Date(newMsg.created_at).getTime()
         };
@@ -191,8 +200,7 @@ router.post('/chat/messages', validate(sendMessageSchema), async (req, res, next
 });
 
 /**
- * POST /api/workspaces/:workspaceId/chat/teams
- * Create a new team/group channel in workspace
+ * POST /api/workspaces/:workspaceId/chat/teams (Legacy)
  */
 router.post('/chat/teams', validate(createTeamSchema), async (req, res, next) => {
     try {
@@ -201,7 +209,6 @@ router.post('/chat/teams', validate(createTeamSchema), async (req, res, next) =>
 
         await requireWorkspaceMember(req.user.id, workspaceId);
 
-        // 1. Insert team
         const { data: team, error: teamError } = await supabaseAdmin
             .from('chat_teams')
             .insert({
@@ -213,7 +220,6 @@ router.post('/chat/teams', validate(createTeamSchema), async (req, res, next) =>
 
         if (teamError) throw teamError;
 
-        // 2. Insert team members
         const teamMembers = memberIds.map(mId => ({
             team_id: team.id,
             member_id: mId
@@ -245,8 +251,7 @@ router.post('/chat/teams', validate(createTeamSchema), async (req, res, next) =>
 });
 
 /**
- * POST /api/workspaces/:workspaceId/chat/clear
- * Clear the chat logs for the active conversation target
+ * POST /api/workspaces/:workspaceId/chat/clear (Legacy)
  */
 router.post('/chat/clear', validate(clearChatSchema), async (req, res, next) => {
     try {
@@ -265,7 +270,6 @@ router.post('/chat/clear', validate(clearChatSchema), async (req, res, next) => 
             if (!targetId) {
                 return res.status(400).json({ success: false, message: 'Recipient ID is required to clear DMs' });
             }
-            // Clear message logs between current user and target user
             deleteQuery = deleteQuery.or(`and(sender_id.eq.${req.user.id},recipient_id.eq.${targetId}),and(sender_id.eq.${targetId},recipient_id.eq.${req.user.id})`);
         } else if (convType === 'team') {
             if (!targetId) {
@@ -273,7 +277,6 @@ router.post('/chat/clear', validate(clearChatSchema), async (req, res, next) => 
             }
             deleteQuery = deleteQuery.eq('team_id', targetId);
         } else {
-            // Global: Clear all global channel messages
             deleteQuery = deleteQuery.is('recipient_id', null).is('team_id', null);
         }
 
@@ -285,6 +288,265 @@ router.post('/chat/clear', validate(clearChatSchema), async (req, res, next) => 
             success: true,
             message: 'Chat cleared successfully',
             data: null
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+
+// ==========================================
+// E2EE Threads & Messages routes
+// ==========================================
+
+/**
+ * GET /api/workspaces/:workspaceId/chat/threads
+ * List all chat threads user has access to
+ */
+router.get('/chat/threads', async (req, res, next) => {
+    try {
+        const { workspaceId } = req.params;
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const threads = await getWorkspaceThreads(workspaceId, req.user.id);
+        return res.status(200).json({
+            success: true,
+            data: { threads }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/workspaces/:workspaceId/chat/threads
+ * Create a new chat thread (private group, DM, etc.)
+ */
+router.post('/chat/threads', validate(createThreadSchema), async (req, res, next) => {
+    try {
+        const { workspaceId } = req.validated.params;
+        const { type, encryptedName, nameIv, memberIds } = req.validated.body;
+
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const thread = await createChatThread(workspaceId, {
+            type,
+            encryptedName,
+            nameIv,
+            createdBy: req.user.id,
+            memberIds
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: 'Chat thread created successfully',
+            data: { thread }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * GET /api/workspaces/:workspaceId/chat/threads/:threadId/messages
+ * Retrieve messages for a specific chat thread
+ */
+router.get('/chat/threads/:threadId/messages', async (req, res, next) => {
+    try {
+        const { workspaceId, threadId } = req.params;
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const messages = await getThreadMessages(workspaceId, threadId, req.user.id);
+        return res.status(200).json({
+            success: true,
+            data: { messages }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/workspaces/:workspaceId/chat/threads/:threadId/messages
+ * Send an E2EE chat message to a thread
+ */
+router.post('/chat/threads/:threadId/messages', validate(sendE2EEMessageSchema), async (req, res, next) => {
+    try {
+        const { workspaceId, threadId } = req.validated.params;
+        
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const message = await saveMessage(workspaceId, threadId, req.user.id, req.validated.body);
+
+        // Realtime emission helper: We trigger the Socket.IO broadcast via local event emitter or global app instance
+        if (req.app.get('socketio')) {
+            const io = req.app.get('socketio');
+            io.to(`thread:${threadId}`).emit('chat:new-message', { message });
+        }
+
+        return res.status(201).json({
+            success: true,
+            message: 'Message sent successfully',
+            data: { message }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * DELETE /api/workspaces/:workspaceId/chat/messages/:messageId
+ * Soft delete a chat message
+ */
+router.delete('/chat/messages/:messageId', async (req, res, next) => {
+    try {
+        const { workspaceId, messageId } = req.params;
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const result = await deleteMessage(workspaceId, messageId, req.user.id);
+
+        if (req.app.get('socketio')) {
+            const io = req.app.get('socketio');
+            io.to(`thread:${result.threadId}`).emit('chat:message-deleted', {
+                messageId: result.id,
+                threadId: result.threadId
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'Message deleted successfully',
+            data: result
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+
+// ==========================================
+// E2EE Workspace Encryption Key Grants routes
+// ==========================================
+
+/**
+ * GET /api/workspaces/:workspaceId/encryption/grants
+ * Fetch all workspace key grants
+ */
+router.get('/encryption/grants', async (req, res, next) => {
+    try {
+        const { workspaceId } = req.params;
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const grants = await getWorkspaceKeyGrants(workspaceId);
+        return res.status(200).json({
+            success: true,
+            data: { grants }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/workspaces/:workspaceId/encryption/grants
+ * Grant workspace key to user device
+ */
+router.post('/encryption/grants', validate(createWorkspaceKeyGrantSchema), async (req, res, next) => {
+    try {
+        const { workspaceId } = req.validated.params;
+        const { keyVersion, keyAlgorithm, userId, deviceKeyId, encryptedWorkspaceKey, grantAlgorithm } = req.validated.body;
+
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const grant = await createWorkspaceKeyGrant(workspaceId, {
+            keyVersion,
+            keyAlgorithm,
+            userId,
+            deviceKeyId,
+            encryptedWorkspaceKey,
+            grantAlgorithm,
+            grantedBy: req.user.id
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: 'Workspace key grant created successfully',
+            data: { grant }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * GET /api/workspaces/:workspaceId/encryption/keys
+ * Fetch active device keys for all workspace members
+ */
+router.get('/encryption/keys', async (req, res, next) => {
+    try {
+        const { workspaceId } = req.params;
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const keys = await getWorkspaceDeviceKeys(workspaceId);
+        return res.status(200).json({
+            success: true,
+            data: { keys }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * GET /api/workspaces/:workspaceId/encryption/my-grant
+ * Fetch caller's grant for specific device key
+ */
+router.get('/encryption/my-grant', async (req, res, next) => {
+    try {
+        const { workspaceId } = req.params;
+        const { deviceKeyId } = req.query;
+
+        if (!deviceKeyId) {
+            return res.status(400).json({
+                success: false,
+                message: 'deviceKeyId is required'
+            });
+        }
+
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const grant = await getMyWorkspaceKeyGrant(workspaceId, req.user.id, deviceKeyId);
+        return res.status(200).json({
+            success: true,
+            data: { grant }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/workspaces/:workspaceId/encryption/rotate-key
+ * Rotate workspace symmetric key
+ */
+router.post('/encryption/rotate-key', validate(rotateWorkspaceKeySchema), async (req, res, next) => {
+    try {
+        const { workspaceId } = req.validated.params;
+        const { newVersion, algorithm, grants } = req.validated.body;
+
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const result = await rotateWorkspaceKey(workspaceId, {
+            newVersion,
+            algorithm,
+            creatorId: req.user.id,
+            grants
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Workspace encryption key rotated successfully',
+            data: result
         });
     } catch (error) {
         next(error);

@@ -59,6 +59,64 @@ router.post('/workspaces/:workspaceId/join-links', requireAuth, async (req, res,
 });
 
 /**
+ * GET /api/workspaces/:workspaceId/join-links
+ * Get all join links for a workspace (Admin/Owner only)
+ */
+router.get('/workspaces/:workspaceId/join-links', requireAuth, async (req, res, next) => {
+    try {
+        const { workspaceId } = req.params;
+
+        // Authorize - Admin/Owner only
+        await requireWorkspaceRole(req.user.id, workspaceId, ['owner', 'admin']);
+
+        const { data: joinLinks, error } = await supabaseAdmin
+            .from('workspace_join_links')
+            .select('*')
+            .eq('workspace_id', workspaceId)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        return res.status(200).json({
+            success: true,
+            message: 'Join links fetched successfully',
+            data: { joinLinks }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * DELETE /api/workspaces/:workspaceId/join-links/:linkId
+ * Revoke/delete a workspace join link (Admin/Owner only)
+ */
+router.delete('/workspaces/:workspaceId/join-links/:linkId', requireAuth, async (req, res, next) => {
+    try {
+        const { workspaceId, linkId } = req.params;
+
+        // Authorize - Admin/Owner only
+        await requireWorkspaceRole(req.user.id, workspaceId, ['owner', 'admin']);
+
+        const { error } = await supabaseAdmin
+            .from('workspace_join_links')
+            .delete()
+            .eq('id', linkId)
+            .eq('workspace_id', workspaceId);
+
+        if (error) throw error;
+
+        return res.status(200).json({
+            success: true,
+            message: 'Join link revoked successfully',
+            data: null
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
  * GET /api/join-links/:token
  * Validate a join link token and return basic workspace info
  */

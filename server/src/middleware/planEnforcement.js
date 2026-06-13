@@ -12,6 +12,7 @@ async function getPlanLimitsForOwner(ownerId) {
         // Fallback or default to Free plan limits if no billing account exists
         const { data: freePlan } = await supabaseAdmin
             .from('plans')
+            .select('*')
             .eq('key', 'free')
             .single();
         return freePlan || { max_workspaces: 1, max_members: 4, max_storage_bytes: 2147483648 };
@@ -20,6 +21,7 @@ async function getPlanLimitsForOwner(ownerId) {
     // 2. Get plan details
     const { data: plan, error: planError } = await supabaseAdmin
         .from('plans')
+        .select('*')
         .eq('key', billingAccount.plan_key)
         .single();
 

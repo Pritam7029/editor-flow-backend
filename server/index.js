@@ -1,4 +1,6 @@
 const express = require('express');
+const http = require('http');
+const { initSocketServer } = require('./src/realtime/socketServer');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -13,6 +15,7 @@ const inviteRoutes = require('./src/routes/invite.routes');
 const taskRoutes = require('./src/routes/task.routes');
 const fileRoutes = require('./src/routes/file.routes');
 const chatRoutes = require('./src/routes/chat.routes');
+const deviceKeyRoutes = require('./src/routes/deviceKey.routes');
 const notificationRoutes = require('./src/routes/notification.routes');
 const sessionRoutes = require('./src/routes/session.routes');
 const billingRoutes = require('./src/routes/billing.routes');
@@ -33,7 +36,14 @@ app.use(
     })
 );
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ 
+    limit: '1mb',
+    verify: (req, res, buf) => {
+        if (req.originalUrl && (req.originalUrl.includes('/webhooks/stripe') || req.originalUrl.includes('/webhooks/razorpay'))) {
+            req.rawBody = buf;
+        }
+    }
+}));
 app.use(express.urlencoded({ extended: true }));
 
 if (env.NODE_ENV === 'development') {
@@ -48,6 +58,7 @@ app.use('/api/session', sessionRoutes);
 app.use('/api', billingRoutes);
 app.use('/api', joinRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/device-keys', deviceKeyRoutes);
 app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/workspaces/:workspaceId', taskRoutes);
 app.use('/api/workspaces/:workspaceId', fileRoutes);
@@ -58,6 +69,9 @@ app.use('/api/invites', inviteRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
-app.listen(env.PORT, () => {
+const server = http.createServer(app);
+initSocketServer(server, app);
+
+server.listen(env.PORT, () => {
     console.log(`EditorFlow backend running on port ${env.PORT}`);
 });

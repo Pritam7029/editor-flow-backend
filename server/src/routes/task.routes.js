@@ -20,6 +20,13 @@ const router = express.Router({ mergeParams: true });
 
 router.use(requireAuth);
 
+function broadcastToWorkspace(req, workspaceId, event, data) {
+    const io = req.app.get('socketio');
+    if (io) {
+        io.to(`workspace:${workspaceId}`).emit(event, data);
+    }
+}
+
 /**
  * GET /api/workspaces/:workspaceId/columns
  * Get Kanban columns for workspace (auto-initializes defaults if empty)
@@ -108,6 +115,8 @@ router.post('/columns', validate(createColumnSchema), async (req, res, next) => 
 
         if (error) throw error;
 
+        broadcastToWorkspace(req, workspaceId, 'board:column-created', { column });
+
         return res.status(201).json({
             success: true,
             message: 'Column created successfully',
@@ -142,6 +151,8 @@ router.patch('/columns/:columnId', validate(updateColumnSchema), async (req, res
 
         if (error) throw error;
 
+        broadcastToWorkspace(req, workspaceId, 'board:column-updated', { column });
+
         return res.status(200).json({
             success: true,
             message: 'Column updated successfully',
@@ -169,6 +180,8 @@ router.delete('/columns/:columnId', async (req, res, next) => {
             .eq('workspace_id', workspaceId);
 
         if (error) throw error;
+
+        broadcastToWorkspace(req, workspaceId, 'board:column-deleted', { columnId });
 
         return res.status(200).json({
             success: true,
@@ -199,6 +212,8 @@ router.patch('/columns/reorder', validate(reorderColumnsSchema), async (req, res
                 .eq('workspace_id', workspaceId)
                 .eq('key', key);
         }));
+
+        broadcastToWorkspace(req, workspaceId, 'board:columns-reordered', { keys });
 
         return res.status(200).json({
             success: true,
@@ -375,6 +390,8 @@ router.post('/tasks', validate(createTaskSchema), async (req, res, next) => {
             comments: []
         };
 
+        broadcastToWorkspace(req, workspaceId, 'board:task-created', { task: hydratedTask });
+
         return res.status(201).json({
             success: true,
             message: 'Task created successfully',
@@ -473,6 +490,8 @@ router.patch('/tasks/:taskId', validate(updateTaskSchema), async (req, res, next
             status: status !== undefined ? status : undefined
         };
 
+        broadcastToWorkspace(req, workspaceId, 'board:task-updated', { task: hydratedTask });
+
         return res.status(200).json({
             success: true,
             message: 'Task updated successfully',
@@ -500,6 +519,8 @@ router.delete('/tasks/:taskId', async (req, res, next) => {
             .eq('workspace_id', workspaceId);
 
         if (error) throw error;
+
+        broadcastToWorkspace(req, workspaceId, 'board:task-deleted', { taskId });
 
         return res.status(200).json({
             success: true,
@@ -549,6 +570,8 @@ router.post('/tasks/:taskId/comments', validate(createCommentSchema), async (req
             text: comment.text,
             ts: new Date(comment.created_at).getTime()
         };
+
+        broadcastToWorkspace(req, workspaceId, 'board:task-comment-added', { taskId, comment: hydratedComment });
 
         return res.status(201).json({
             success: true,
