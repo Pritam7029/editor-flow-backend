@@ -72,6 +72,10 @@ app.use(errorHandler);
 const server = http.createServer(app);
 initSocketServer(server, app);
 
-server.listen(env.PORT, () => {
-    console.log(`EditorFlow backend running on port ${env.PORT}`);
-});
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+    server.listen(env.PORT, () => {
+        console.log(`EditorFlow backend running on port ${env.PORT}`);
+    });
+}
+
+module.exports = app;
