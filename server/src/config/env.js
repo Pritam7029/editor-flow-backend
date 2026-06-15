@@ -10,7 +10,10 @@ const envSchema = z.object({
 
     PORT: z.coerce.number().default(3001),
 
-    CLIENT_URL: z.string().url().optional().default(DEFAULT_CLIENT_URL),
+    CLIENT_URL: z.preprocess(
+        (val) => (val === '' || val === undefined ? undefined : val),
+        z.string().url().optional().default(DEFAULT_CLIENT_URL)
+    ),
 
     SUPABASE_URL: z.string().url(),
     SUPABASE_ANON_KEY: z.string().min(1),
