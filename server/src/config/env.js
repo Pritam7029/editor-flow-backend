@@ -1,6 +1,8 @@
 const { z } = require('zod');
 require('dotenv').config();
 
+const DEFAULT_CLIENT_URL = 'http://localhost:5173';
+
 const envSchema = z.object({
     NODE_ENV: z
         .enum(['development', 'test', 'production'])
@@ -8,7 +10,7 @@ const envSchema = z.object({
 
     PORT: z.coerce.number().default(3001),
 
-    CLIENT_URL: z.string().url(),
+    CLIENT_URL: z.string().url().optional().default(DEFAULT_CLIENT_URL),
 
     SUPABASE_URL: z.string().url(),
     SUPABASE_ANON_KEY: z.string().min(1),
@@ -31,6 +33,11 @@ if (!parsedEnv.success) {
         'Missing or invalid environment variables: ' +
         Object.keys(fieldErrors).join(', ')
     );
+}
+
+// Warn if CLIENT_URL is using the default in production
+if (parsedEnv.data.NODE_ENV === 'production' && parsedEnv.data.CLIENT_URL === DEFAULT_CLIENT_URL) {
+    console.warn('⚠️  WARNING: CLIENT_URL is not set — using default localhost. Set CLIENT_URL in your environment variables for production.');
 }
 
 module.exports = parsedEnv.data;
