@@ -26,7 +26,11 @@ function initSocketServer(httpServer, app) {
                 else if ((process.env.VERCEL || allowedOrigins.some(url => url.includes('.vercel.app'))) && normalizedOrigin.endsWith('.vercel.app')) {
                     isAllowed = true;
                 }
-                // 3. Allow localhost during development or testing
+                // 3. Support Render preview/production deployments if running on Render or any allowed origin is on Render
+                else if ((process.env.RENDER || allowedOrigins.some(url => url.includes('.onrender.com'))) && normalizedOrigin.endsWith('.onrender.com')) {
+                    isAllowed = true;
+                }
+                // 4. Allow localhost during development or testing
                 else if (env.NODE_ENV !== 'production' && (normalizedOrigin.startsWith('http://localhost:') || normalizedOrigin.startsWith('http://127.0.0.1:'))) {
                     isAllowed = true;
                 }
