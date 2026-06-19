@@ -46,16 +46,16 @@ app.use(
             if (allowedOrigins.includes(normalizedOrigin)) {
                 isAllowed = true;
             }
-            // 2. Support Vercel preview deployments if running on Vercel or any allowed origin is on Vercel
-            else if ((process.env.VERCEL || allowedOrigins.some(url => url.includes('.vercel.app'))) && normalizedOrigin.endsWith('.vercel.app')) {
+            // 2. Support any Vercel deployments (previews, production, etc.)
+            else if (normalizedOrigin.endsWith('.vercel.app')) {
                 isAllowed = true;
             }
-            // 3. Support Render preview/production deployments if running on Render or any allowed origin is on Render
-            else if ((process.env.RENDER || allowedOrigins.some(url => url.includes('.onrender.com'))) && normalizedOrigin.endsWith('.onrender.com')) {
+            // 3. Support any Render deployments
+            else if (normalizedOrigin.endsWith('.onrender.com')) {
                 isAllowed = true;
             }
             // 4. Allow localhost during development or testing
-            else if (env.NODE_ENV !== 'production' && (normalizedOrigin.startsWith('http://localhost:') || normalizedOrigin.startsWith('http://127.0.0.1:'))) {
+            else if (normalizedOrigin.startsWith('http://localhost:') || normalizedOrigin.startsWith('http://127.0.0.1:')) {
                 isAllowed = true;
             }
             
