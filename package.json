@@ -1,0 +1,9 @@
+{
+  "name": "editorflow-backend-root",
+  "version": "1.0.0",
+  "description": "Root package runner for EditorFlow backend",
+  "scripts": {
+    "build": "npm --prefix server install",
+    "start": "npm --prefix server start"
+  }
+}
