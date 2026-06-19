@@ -37,14 +37,25 @@ if (!parsedEnv.success) {
 }
 
 // Handle CLIENT_URL separately — never let it crash the app
-let clientUrl = DEFAULT_CLIENT_URL;
+let clientUrls = [DEFAULT_CLIENT_URL];
 const rawClientUrl = (process.env.CLIENT_URL || '').trim();
 if (rawClientUrl) {
-    try {
-        new URL(rawClientUrl); // validate it's a real URL
-        clientUrl = rawClientUrl;
-    } catch {
-        console.warn(`⚠️  CLIENT_URL "${rawClientUrl}" is not a valid URL — using default: ${DEFAULT_CLIENT_URL}`);
+    const urls = rawClientUrl.split(',').map(url => url.trim());
+    const validUrls = [];
+    for (const urlStr of urls) {
+        try {
+            // Trim trailing slashes from the URL before validation
+            const normalizedUrl = urlStr.replace(/\/+$/, '');
+            new URL(normalizedUrl); // validate it's a real URL
+            validUrls.push(normalizedUrl);
+        } catch {
+            console.warn(`⚠️  Individual CLIENT_URL "${urlStr}" is not a valid URL — ignoring it.`);
+        }
+    }
+    if (validUrls.length > 0) {
+        clientUrls = validUrls;
+    } else {
+        console.warn(`⚠️  No valid URLs found in CLIENT_URL — using default: ${DEFAULT_CLIENT_URL}`);
     }
 } else {
     console.warn(`⚠️  CLIENT_URL is not set — using default: ${DEFAULT_CLIENT_URL}`);
@@ -52,5 +63,6 @@ if (rawClientUrl) {
 
 module.exports = {
     ...parsedEnv.data,
-    CLIENT_URL: clientUrl
+    CLIENT_URLS: clientUrls,
+    CLIENT_URL: clientUrls[0]
 };

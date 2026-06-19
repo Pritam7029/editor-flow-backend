@@ -6,9 +6,33 @@ const { getRedisClient } = require('./presence.service');
 const env = require('../config/env');
 
 function initSocketServer(httpServer, app) {
+    const allowedOrigins = env.CLIENT_URLS || [env.CLIENT_URL];
     const io = new Server(httpServer, {
         cors: {
-            origin: env.CLIENT_URL,
+            origin: (origin, callback) => {
+                // Allow requests with no origin (like mobile apps, curl, or server-to-server)
+                if (!origin) return callback(null, true);
+                
+                const normalizedOrigin = origin.replace(/\/+$/, '');
+                
+                // Check exact match in configured allowed origins
+                if (allowedOrigins.includes(normalizedOrigin)) {
+                    return callback(null, true);
+                }
+                
+                // Support Vercel preview deployments if any allowed origin is on Vercel
+                const hasVercelAllowed = allowedOrigins.some(url => url.includes('.vercel.app'));
+                if (hasVercelAllowed && normalizedOrigin.endsWith('.vercel.app')) {
+                    return callback(null, true);
+                }
+                
+                // Allow localhost during development or testing
+                if (env.NODE_ENV !== 'production' && (normalizedOrigin.startsWith('http://localhost:') || normalizedOrigin.startsWith('http://127.0.0.1:'))) {
+                    return callback(null, true);
+                }
+                
+                return callback(null, false);
+            },
             methods: ['GET', 'POST'],
             credentials: true
         }
