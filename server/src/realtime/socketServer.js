@@ -11,27 +11,33 @@ function initSocketServer(httpServer, app) {
         cors: {
             origin: (origin, callback) => {
                 // Allow requests with no origin (like mobile apps, curl, or server-to-server)
-                if (!origin) return callback(null, true);
+                if (!origin) {
+                    return callback(null, true);
+                }
                 
                 const normalizedOrigin = origin.replace(/\/+$/, '');
+                let isAllowed = false;
                 
-                // Check exact match in configured allowed origins
+                // 1. Check exact match in configured allowed origins
                 if (allowedOrigins.includes(normalizedOrigin)) {
-                    return callback(null, true);
+                    isAllowed = true;
+                }
+                // 2. Support Vercel preview deployments if running on Vercel or any allowed origin is on Vercel
+                else if ((process.env.VERCEL || allowedOrigins.some(url => url.includes('.vercel.app'))) && normalizedOrigin.endsWith('.vercel.app')) {
+                    isAllowed = true;
+                }
+                // 3. Allow localhost during development or testing
+                else if (env.NODE_ENV !== 'production' && (normalizedOrigin.startsWith('http://localhost:') || normalizedOrigin.startsWith('http://127.0.0.1:'))) {
+                    isAllowed = true;
                 }
                 
-                // Support Vercel preview deployments if any allowed origin is on Vercel
-                const hasVercelAllowed = allowedOrigins.some(url => url.includes('.vercel.app'));
-                if (hasVercelAllowed && normalizedOrigin.endsWith('.vercel.app')) {
-                    return callback(null, true);
-                }
+                console.log(`[Socket CORS] Request from origin: "${origin}" | Normalized: "${normalizedOrigin}" | Allowed: ${isAllowed} | Configured Allowed: ${JSON.stringify(allowedOrigins)}`);
                 
-                // Allow localhost during development or testing
-                if (env.NODE_ENV !== 'production' && (normalizedOrigin.startsWith('http://localhost:') || normalizedOrigin.startsWith('http://127.0.0.1:'))) {
+                if (isAllowed) {
                     return callback(null, true);
+                } else {
+                    return callback(null, false);
                 }
-                
-                return callback(null, false);
             },
             methods: ['GET', 'POST'],
             credentials: true
