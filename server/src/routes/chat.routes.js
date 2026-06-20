@@ -30,7 +30,7 @@ const {
     createWorkspaceKeyGrant,
     getMyWorkspaceKeyGrant,
     rotateWorkspaceKey,
-    getWorkspaceDeviceKeys
+    getWorkspaceMemberEncryptionIdentities
 } = require('../services/workspaceKey.service');
 
 const router = express.Router({ mergeParams: true });
@@ -429,6 +429,68 @@ router.delete('/chat/messages/:messageId', async (req, res, next) => {
 // ==========================================
 
 /**
+ * GET /api/workspaces/:workspaceId/encryption/status
+ * Fetch active workspace encryption key metadata status
+ */
+router.get('/encryption/status', async (req, res, next) => {
+    try {
+        const { workspaceId } = req.params;
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const { data: keyRow, error } = await supabaseAdmin
+            .from('workspace_encryption_keys')
+            .select('id, key_version, algorithm, status')
+            .eq('workspace_id', workspaceId)
+            .eq('status', 'active')
+            .maybeSingle();
+
+        if (error) throw error;
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                enabled: !!keyRow,
+                workspaceKeyId: keyRow ? keyRow.id : null,
+                keyVersion: keyRow ? keyRow.key_version : null,
+                algorithm: keyRow ? keyRow.algorithm : null
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/workspaces/:workspaceId/encryption/initialize
+ * Initialize workspace encryption key & create grant for owner/admin
+ */
+router.post('/encryption/initialize', async (req, res, next) => {
+    try {
+        const { workspaceId } = req.params;
+        const { keyAlgorithm, encryptedWorkspaceKey, grantAlgorithm } = req.body;
+
+        await requireWorkspaceMember(req.user.id, workspaceId);
+
+        const grant = await createWorkspaceKeyGrant(workspaceId, {
+            keyVersion: 1,
+            keyAlgorithm: keyAlgorithm || 'AES-GCM',
+            recipientUserId: req.user.id,
+            encryptedWorkspaceKey,
+            grantAlgorithm: grantAlgorithm || 'RSA-OAEP',
+            grantedBy: req.user.id
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: 'Workspace encryption initialized successfully',
+            data: { grant }
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
  * GET /api/workspaces/:workspaceId/encryption/grants
  * Fetch all workspace key grants
  */
@@ -449,20 +511,19 @@ router.get('/encryption/grants', async (req, res, next) => {
 
 /**
  * POST /api/workspaces/:workspaceId/encryption/grants
- * Grant workspace key to user device
+ * Grant workspace key to user (user-level)
  */
 router.post('/encryption/grants', validate(createWorkspaceKeyGrantSchema), async (req, res, next) => {
     try {
         const { workspaceId } = req.validated.params;
-        const { keyVersion, keyAlgorithm, userId, deviceKeyId, encryptedWorkspaceKey, grantAlgorithm } = req.validated.body;
+        const { keyVersion, keyAlgorithm, recipientUserId, encryptedWorkspaceKey, grantAlgorithm } = req.validated.body;
 
         await requireWorkspaceMember(req.user.id, workspaceId);
 
         const grant = await createWorkspaceKeyGrant(workspaceId, {
             keyVersion,
             keyAlgorithm,
-            userId,
-            deviceKeyId,
+            recipientUserId,
             encryptedWorkspaceKey,
             grantAlgorithm,
             grantedBy: req.user.id
@@ -480,14 +541,14 @@ router.post('/encryption/grants', validate(createWorkspaceKeyGrantSchema), async
 
 /**
  * GET /api/workspaces/:workspaceId/encryption/keys
- * Fetch active device keys for all workspace members
+ * Fetch active public keys/identities for all active workspace members
  */
 router.get('/encryption/keys', async (req, res, next) => {
     try {
         const { workspaceId } = req.params;
         await requireWorkspaceMember(req.user.id, workspaceId);
 
-        const keys = await getWorkspaceDeviceKeys(workspaceId);
+        const keys = await getWorkspaceMemberEncryptionIdentities(workspaceId);
         return res.status(200).json({
             success: true,
             data: { keys }
@@ -499,23 +560,14 @@ router.get('/encryption/keys', async (req, res, next) => {
 
 /**
  * GET /api/workspaces/:workspaceId/encryption/my-grant
- * Fetch caller's grant for specific device key
+ * Fetch caller's grant (no device key required)
  */
 router.get('/encryption/my-grant', async (req, res, next) => {
     try {
         const { workspaceId } = req.params;
-        const { deviceKeyId } = req.query;
-
-        if (!deviceKeyId) {
-            return res.status(400).json({
-                success: false,
-                message: 'deviceKeyId is required'
-            });
-        }
-
         await requireWorkspaceMember(req.user.id, workspaceId);
 
-        const grant = await getMyWorkspaceKeyGrant(workspaceId, req.user.id, deviceKeyId);
+        const grant = await getMyWorkspaceKeyGrant(workspaceId, req.user.id);
         return res.status(200).json({
             success: true,
             data: { grant }

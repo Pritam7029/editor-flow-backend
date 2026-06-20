@@ -7,8 +7,7 @@ async function getWorkspaceKeyGrants(workspaceId) {
             id,
             workspace_id,
             workspace_key_id,
-            user_id,
-            device_key_id,
+            recipient_user_id,
             encrypted_workspace_key,
             grant_algorithm,
             created_at,
@@ -26,8 +25,7 @@ async function getWorkspaceKeyGrants(workspaceId) {
 async function createWorkspaceKeyGrant(workspaceId, {
     keyVersion,
     keyAlgorithm,
-    userId,
-    deviceKeyId,
+    recipientUserId,
     encryptedWorkspaceKey,
     grantAlgorithm,
     grantedBy
@@ -66,8 +64,7 @@ async function createWorkspaceKeyGrant(workspaceId, {
         .insert({
             workspace_id: workspaceId,
             workspace_key_id: keyVersionRow.id,
-            user_id: userId,
-            device_key_id: deviceKeyId,
+            recipient_user_id: recipientUserId,
             encrypted_workspace_key: encryptedWorkspaceKey,
             grant_algorithm: grantAlgorithm || 'RSA-OAEP',
             granted_by: grantedBy
@@ -82,7 +79,7 @@ async function createWorkspaceKeyGrant(workspaceId, {
                 .from('workspace_key_grants')
                 .select('*')
                 .eq('workspace_key_id', keyVersionRow.id)
-                .eq('device_key_id', deviceKeyId)
+                .eq('recipient_user_id', recipientUserId)
                 .maybeSingle();
             if (getExistError) throw getExistError;
             return existingGrant;
@@ -93,15 +90,14 @@ async function createWorkspaceKeyGrant(workspaceId, {
     return grant;
 }
 
-async function getMyWorkspaceKeyGrant(workspaceId, userId, deviceKeyId) {
+async function getMyWorkspaceKeyGrant(workspaceId, userId) {
     const { data, error } = await supabaseAdmin
         .from('workspace_key_grants')
         .select(`
             id,
             workspace_id,
             workspace_key_id,
-            user_id,
-            device_key_id,
+            recipient_user_id,
             encrypted_workspace_key,
             grant_algorithm,
             workspace_encryption_keys!workspace_key_id (
@@ -112,8 +108,7 @@ async function getMyWorkspaceKeyGrant(workspaceId, userId, deviceKeyId) {
             )
         `)
         .eq('workspace_id', workspaceId)
-        .eq('user_id', userId)
-        .eq('device_key_id', deviceKeyId)
+        .eq('recipient_user_id', userId)
         .is('revoked_at', null)
         .order('created_at', { ascending: false });
 
@@ -150,12 +145,11 @@ async function rotateWorkspaceKey(workspaceId, { newVersion, algorithm, creatorI
 
     if (insertKeyError) throw insertKeyError;
 
-    // 3. Create key grants for all specified approved user devices
+    // 3. Create key grants for all specified approved users
     const grantRows = grants.map(g => ({
         workspace_id: workspaceId,
         workspace_key_id: newKeyRow.id,
-        user_id: g.userId,
-        device_key_id: g.deviceKeyId,
+        recipient_user_id: g.recipientUserId,
         encrypted_workspace_key: g.encryptedWorkspaceKey,
         grant_algorithm: g.grantAlgorithm || 'RSA-OAEP',
         granted_by: creatorId
@@ -174,7 +168,7 @@ async function rotateWorkspaceKey(workspaceId, { newVersion, algorithm, creatorI
     };
 }
 
-async function getWorkspaceDeviceKeys(workspaceId) {
+async function getWorkspaceMemberEncryptionIdentities(workspaceId) {
     const { data: members, error: memError } = await supabaseAdmin
         .from('workspace_members')
         .select('user_id')
@@ -186,14 +180,14 @@ async function getWorkspaceDeviceKeys(workspaceId) {
     const userIds = (members || []).map(m => m.user_id);
     if (userIds.length === 0) return [];
 
-    const { data: keys, error: keyError } = await supabaseAdmin
-        .from('user_device_keys')
-        .select('id, user_id, device_name, public_key, algorithm, created_at')
+    const { data: identities, error: identError } = await supabaseAdmin
+        .from('user_encryption_identities')
+        .select('id, user_id, public_key, key_algorithm, created_at')
         .in('user_id', userIds)
         .eq('status', 'active');
 
-    if (keyError) throw keyError;
-    return keys || [];
+    if (identError) throw identError;
+    return identities || [];
 }
 
 module.exports = {
@@ -201,5 +195,6 @@ module.exports = {
     createWorkspaceKeyGrant,
     getMyWorkspaceKeyGrant,
     rotateWorkspaceKey,
-    getWorkspaceDeviceKeys
+    getWorkspaceMemberEncryptionIdentities
 };
+

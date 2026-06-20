@@ -217,7 +217,7 @@ async function saveMessage(workspaceId, threadId, userId, messageData) {
             workspace_id: workspaceId,
             thread_id: threadId,
             sender_id: userId,
-            sender_device_key_id: senderDeviceKeyId,
+            sender_device_key_id: null,
             workspace_key_id: workspaceKeyId,
             encrypted_body: encryptedBody,
             body_iv: bodyIv,

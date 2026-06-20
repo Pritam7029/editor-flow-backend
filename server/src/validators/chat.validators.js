@@ -66,7 +66,6 @@ const sendE2EEMessageSchema = z.object({
         bodyIv: z.string().min(1, 'Body IV is required'),
         encryptionAlgorithm: z.string().default('AES-GCM'),
         workspaceKeyId: z.string().uuid('Invalid workspace key ID'),
-        senderDeviceKeyId: z.string().uuid('Invalid sender device key ID'),
         clientMessageId: z.string().optional().nullable(),
         messageType: z.string().default('text')
     }),
@@ -80,8 +79,7 @@ const createWorkspaceKeyGrantSchema = z.object({
     body: z.object({
         keyVersion: z.number().int().min(1, 'Key version must be a positive integer'),
         keyAlgorithm: z.string().default('AES-GCM'),
-        userId: z.string().uuid('Invalid user ID'),
-        deviceKeyId: z.string().uuid('Invalid device key ID'),
+        recipientUserId: z.string().uuid('Invalid recipient user ID'),
         encryptedWorkspaceKey: z.string().min(1, 'Encrypted workspace key is required'),
         grantAlgorithm: z.string().default('RSA-OAEP')
     }),
@@ -96,8 +94,7 @@ const rotateWorkspaceKeySchema = z.object({
         newVersion: z.number().int().min(1, 'New key version must be a positive integer'),
         algorithm: z.string().default('AES-GCM'),
         grants: z.array(z.object({
-            userId: z.string().uuid('Invalid user ID'),
-            deviceKeyId: z.string().uuid('Invalid device key ID'),
+            recipientUserId: z.string().uuid('Invalid recipient user ID'),
             encryptedWorkspaceKey: z.string().min(1, 'Encrypted workspace key is required'),
             grantAlgorithm: z.string().default('RSA-OAEP')
         })).min(1, 'At least one grant is required for key rotation')
